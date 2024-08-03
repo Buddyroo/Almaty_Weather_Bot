@@ -250,7 +250,7 @@ async def weather_later(message: Message):
             f"Максимальная температура: {day['temp_max']}°C, минимальная температура: {day['temp_min']}°C. "
             f"Влажность: {day['humidity']}%. Ветер: {day['wind_speed']} м/с, направление {wind_direction}.\n"
         )
-    question += "Какие рекомендации по одежде и чем можно заняться в городе и окрестностях на эти дни?"
+    question += "Какие рекомендации по одежде и чем можно заняться в городе и окрестностях на эти дни? Предложи поездки в пределах 300 км"
 
     # Получение ответа от ИИ
     ai_response = question_answer_from_ChatGPT(question)
