@@ -1,4 +1,5 @@
 import asyncio
+import locale
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
@@ -7,6 +8,8 @@ import random
 import requests
 from datetime import datetime, timedelta
 import pytz
+
+locale.setlocale(locale.LC_TIME, 'ru_RU.UTF-8')
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -28,6 +31,9 @@ def get_wind_direction(deg):
 def get_current_weather():
     url = f"http://api.openweathermap.org/data/2.5/weather?lat=43.2567&lon=76.9286&appid={OPENWEATHER_API_KEY}&units=metric&lang=ru"
     response = requests.get(url)
+    if response.status_code != 200:
+        print(f"Ошибка получения текущей погоды: {response.status_code}, {response.text}")
+        return None
     data = response.json()
     timezone = pytz.timezone('Asia/Almaty')
     weather_info = {
@@ -47,55 +53,55 @@ def get_current_weather():
     return weather_info
 
 
-# Функция для получения прогноза погоды на 4 дня
+# Функция для получения прогноза погоды на 5 дней
 def get_forecast():
-    url = f"http://pro.openweathermap.org/data/2.5/forecast/hourly?lat=43.2567&lon=76.9286&appid={OPENWEATHER_API_KEY}&units=metric&lang=ru"
+    url = f"http://api.openweathermap.org/data/2.5/forecast?lat=43.2567&lon=76.9286&appid={OPENWEATHER_API_KEY}&units=metric&lang=ru"
     response = requests.get(url)
+    if response.status_code != 200:
+        print(f"Ошибка получения прогноза погоды: {response.status_code}, {response.text}")
+        return None
     data = response.json()
-    timezone = pytz.timezone('Asia/Almaty')
+    if "list" not in data:
+        print(f"Ошибка: ключ 'list' отсутствует в ответе API: {data}")
+        return None
 
+    timezone = pytz.timezone('Asia/Almaty')
     forecast = []
-    current_date = None
-    daily_forecast = {"temps": [], "wind_speeds": [], "wind_directions": [], "humidity": []}
+    daily_forecast = {}
 
     for entry in data["list"]:
-        date = datetime.fromtimestamp(entry["dt"], tz=timezone).date()
-        if current_date is None:
-            current_date = date
+        dt = datetime.fromtimestamp(entry["dt"], tz=timezone)
+        date = dt.date()
+        time = dt.strftime('%H:%M')
 
-        if date != current_date:
-            forecast.append({
-                "date": current_date,
-                "temp_min": min(daily_forecast["temps"]),
-                "temp_max": max(daily_forecast["temps"]),
-                "humidity": daily_forecast["humidity"][0],
-                "wind_speed": sum(daily_forecast["wind_speeds"]) / len(daily_forecast["wind_speeds"]),
-                "wind_direction": get_wind_direction(
-                    sum(daily_forecast["wind_directions"]) / len(daily_forecast["wind_directions"])),
-                "main": daily_forecast["main"],
-                "description": daily_forecast["description"]
-            })
-            current_date = date
-            daily_forecast = {"temps": [], "wind_speeds": [], "wind_directions": [], "humidity": []}
+        if date not in daily_forecast:
+            daily_forecast[date] = {
+                "temps": [],
+                "wind_speeds": [],
+                "wind_directions": [],
+                "humidity": [],
+                "weather": []
+            }
 
-        daily_forecast["temps"].append(entry["main"]["temp"])
-        daily_forecast["wind_speeds"].append(entry["wind"]["speed"])
-        daily_forecast["wind_directions"].append(entry["wind"]["deg"])
-        daily_forecast["humidity"].append(entry["main"]["humidity"])
-        daily_forecast["main"] = entry["weather"][0]["main"]
-        daily_forecast["description"] = entry["weather"][0]["description"]
+        daily_forecast[date]["temps"].append(entry["main"]["temp"])
+        daily_forecast[date]["wind_speeds"].append(entry["wind"]["speed"])
+        daily_forecast[date]["wind_directions"].append(entry["wind"]["deg"])
+        daily_forecast[date]["humidity"].append(entry["main"]["humidity"])
+        daily_forecast[date]["weather"].append({
+            "time": time,
+            "main": entry["weather"][0]["main"],
+            "description": entry["weather"][0]["description"]
+        })
 
-    if daily_forecast["temps"]:
+    for date, values in daily_forecast.items():
         forecast.append({
-            "date": current_date,
-            "temp_min": min(daily_forecast["temps"]),
-            "temp_max": max(daily_forecast["temps"]),
-            "humidity": daily_forecast["humidity"][0],
-            "wind_speed": sum(daily_forecast["wind_speeds"]) / len(daily_forecast["wind_speeds"]),
-            "wind_direction": get_wind_direction(
-                sum(daily_forecast["wind_directions"]) / len(daily_forecast["wind_directions"])),
-            "main": daily_forecast["main"],
-            "description": daily_forecast["description"]
+            "date": date,
+            "temp_min": min(values["temps"]),
+            "temp_max": max(values["temps"]),
+            "humidity": values["humidity"][0],  # Assuming humidity doesn't vary much within a day
+            "wind_speed": sum(values["wind_speeds"]) / len(values["wind_speeds"]),
+            "wind_direction": get_wind_direction(sum(values["wind_directions"]) / len(values["wind_directions"])),
+            "weather": values["weather"]
         })
 
     return forecast
@@ -137,6 +143,10 @@ async def start(message: Message):
 async def weather_now(message: Message):
     await message.answer("Давай посмотрим, как в Алматы дела на улице...")
     weather_info = get_current_weather()
+    if weather_info is None:
+        await message.answer("Не удалось получить текущую погоду.")
+        return
+
     wind_direction = weather_info['wind_direction']
     wind_speed = weather_info['wind_speed']
     wind_deg = weather_info['wind_deg']
@@ -168,20 +178,30 @@ async def weather_now(message: Message):
 
 @dp.message(Command("weather_later"))
 async def weather_later(message: Message):
-    await message.answer("Прогноз на следующие 4 дня:")
+    await message.answer("Прогноз на следующие 5 дней:")
     forecast = get_forecast()
-    forecast_message = ""
-    for day in forecast:
-        wind_direction = get_wind_direction(day['wind_deg'])
-        forecast_message += (
-            f"\nДата: {day['date']}\n"
+    if forecast is None:
+        await message.answer("Не удалось получить прогноз погоды.")
+        return
+
+    today = datetime.now(pytz.timezone('Asia/Almaty')).date()
+    headers = ["ЗАВТРА", "ПОСЛЕЗАВТРА", "ЧЕРЕЗ 3 ДНЯ", "ЧЕРЕЗ 4 ДНЯ", "ЧЕРЕЗ 5 ДНЕЙ"]
+
+    for i, day in enumerate(forecast[:5]):
+        day_of_week = (today + timedelta(days=i + 1)).strftime('%A').capitalize()
+        wind_direction = day['wind_direction']
+        forecast_message = (
+            f"--------{headers[i]}, {day_of_week}--------\n"
+            f"Дата: {day['date']}\n"
             f"Максимальная температура: {day['temp_max']}°C\n"
             f"Минимальная температура: {day['temp_min']}°C\n"
             f"Влажность: {day['humidity']}%\n"
             f"Ветер: {day['wind_speed']} м/с, направление {wind_direction}\n"
-            f"Состояние погоды: {day['main']} - {day['description']}\n"
+            f"Состояние погоды:\n"
         )
-    await message.answer(forecast_message)
+        for weather in day['weather']:
+            forecast_message += f"  {weather['time']}: {weather['main']} - {weather['description']}\n"
+        await message.answer(forecast_message)
 
 
 async def main():
