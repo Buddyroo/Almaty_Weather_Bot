@@ -161,3 +161,5 @@ cython_debug/
 
 # Игнорировать файл config.py
 config.py
+main.py
+weather_bot.py
