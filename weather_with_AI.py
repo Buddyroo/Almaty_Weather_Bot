@@ -1,7 +1,7 @@
 import asyncio
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message
+from aiogram.types import Message, FSInputFile
 from config import TOKEN, OPENWEATHER_API_KEY, API_OPENAI_KEY
 import random
 import requests
@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 import pytz
 import openai
 from openai import OpenAI
+from gtts import gTTS
+import os
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -132,6 +134,47 @@ def question_answer_from_ChatGPT(question):
     return answer
 
 
+@dp.message(Command("video"))
+async def video (message: Message):
+    await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
+    video = FSInputFile('video.mp4')
+    await bot.send_video(chat_id=message.chat.id, video=video)
+
+@dp.message(Command("audio"))
+async def audio (message: Message):
+    await bot.send_chat_action(chat_id=message.chat.id, action="upload_audio")
+    audio = FSInputFile('audio.mp3')
+    await bot.send_audio(chat_id=message.chat.id, audio = audio)
+
+@dp.message(Command("training"))
+async def training (message: Message):
+
+    daily_workouts = [
+        "Бег - 30 минут",
+        "Силовая тренировка - 45 минут",
+        "Йога - 60 минут",
+        "Плавание - 30 минут",
+        "Велосипед - 45 минут"
+    ]
+    random_workout = random.choice(daily_workouts)
+    await message.answer(f"Тренировка: {random_workout}")
+    tts = gTTS(random_workout, lang = 'ru')
+    tts.save("workout.ogg")
+    await bot.send_chat_action(chat_id=message.chat.id, action="upload_audio")
+    audio_workout = FSInputFile('workout.ogg')
+    await message.answer_voice(audio_workout)
+    os.remove("workout.ogg")
+
+@dp.message (Command('doc'))
+async def doc (message: Message):
+    await bot.send_chat_action(chat_id=message.chat.id, action="upload_document")
+    doc = FSInputFile('doc.pdf')
+    await message.answer_document(doc)
+@dp.message (Command('voice'))
+async def voice (message: Message):
+    await bot.send_chat_action(chat_id=message.chat.id, action="record_voice")
+    voice = FSInputFile('audio.ogg')
+    await message.answer_voice(voice)
 @dp.message(Command("photo"))
 async def photo(message: Message):
     list_photos = [
@@ -162,6 +205,9 @@ async def help(message: Message):
 @dp.message(CommandStart())
 async def start(message: Message):
     await message.answer(f"Привет, {message.from_user.full_name}!")
+
+
+
 
 
 @dp.message(Command("weather_now"))
@@ -258,6 +304,9 @@ async def weather_later(message: Message):
     # Отправка общей рекомендации
     await message.answer(f"Готово! Мои предложения на следующие 5 дней:\n{ai_response}")
 
+@dp.message()
+async def answer(message: Message):
+    await message.send_copy(chat_id=message.chat.id)
 
 async def main():
     await dp.start_polling(bot)
